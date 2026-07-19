@@ -1,0 +1,28 @@
+[package]
+name = "mupdf-mini-rs"
+version = "0.1.0"
+edition = "2021"
+description = "A minimalist MuPDF viewer written in Rust, powered by mupdf-rs"
+license = "AGPL-3.0"
+default-run = "mupdf-mini-rs"
+repository = "https://github.com/messense/mupdf-rs"
+
+[[bin]]
+name = "mupdf-mini-rs"
+path = "src/main.rs"
+
+[lib]
+name = "mupdf_mini_rs"
+path = "src/lib.rs"
+
+[dependencies]
+# Safe Rust bindings to MuPDF. Minimal feature set: just PDF + base14 fonts
+# (the URW fonts compiled into mupdf-sys) so the viewer stays small and fast.
+# Enable "system-fonts" to use platform fonts (e.g. CJK) at runtime.
+mupdf = { version = "0.8", default-features = false, features = ["base14-fonts", "system-fonts"] }
+winit = "0.30"
+softbuffer = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
