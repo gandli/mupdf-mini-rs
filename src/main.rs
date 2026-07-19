@@ -17,6 +17,7 @@ fn print_help() {
     eprintln!("  --scale  F   zoom factor, 1.0 = 72dpi (default 2.0)");
     eprintln!("  --rotate D   rotation in degrees 0/90/180/270 (default 0)");
     eprintln!("  --out    P   output PNG path (default page.png)");
+    eprintln!("  --search S   highlight all matches of S (ASCII or via argv; e.g. CJK)");
 }
 
 fn main() {
@@ -34,6 +35,7 @@ fn main() {
             let mut scale = 2.0f32;
             let mut rotation = 0u8;
             let mut out = "page.png".to_string();
+            let mut search: Option<String> = None;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
@@ -53,15 +55,19 @@ fn main() {
                         out = args[i + 1].clone();
                         i += 2;
                     }
+                    "--search" => {
+                        search = Some(args[i + 1].clone());
+                        i += 2;
+                    }
                     other => {
                         eprintln!("unknown option: {other}");
                         exit(1);
                     }
                 }
             }
-            match document::ViewerDocument::open(&file)
-                .and_then(|d| d.save_page_png(page, scale, rotation, &out))
-            {
+            match document::ViewerDocument::open(&file).and_then(|d| {
+                d.save_page_png_with_search(page, scale, rotation, search.as_deref(), &out)
+            }) {
                 Ok(()) => eprintln!("rendered page {page} -> {out}"),
                 Err(e) => {
                     eprintln!("error: {e}");

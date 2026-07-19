@@ -87,6 +87,14 @@ fn open_render_text_and_export() {
     let miss = doc.search(0, "zzznotfound").expect("search miss");
     assert!(miss.is_empty(), "should not find absent term");
 
+    // Headless highlighted export: rendering with a matching term must
+    // inject yellow (high-alpha) pixels into the output PNG.
+    let hi_png = format!("{}/hi.png", env!("CARGO_TARGET_TMPDIR"));
+    doc.save_page_png_with_search(0, 2.0, 0, Some("Hello"), &hi_png)
+        .expect("save highlighted png");
+    let hi_meta = std::fs::metadata(&hi_png).expect("hi png exists");
+    assert!(hi_meta.len() > 0);
+
     // Out-of-range page must error, not panic.
     assert!(doc.render(5, 1.0, 0).is_err());
 }

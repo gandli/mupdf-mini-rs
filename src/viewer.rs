@@ -16,7 +16,6 @@ use mupdf::{Matrix, Quad};
 
 use crate::document::ViewerDocument;
 use crate::error::Result;
-use crate::render::RenderedPage;
 
 const MIN_SCALE: f32 = 0.25;
 const MAX_SCALE: f32 = 8.0;
@@ -24,9 +23,8 @@ const MAX_SCALE: f32 = 8.0;
 /// Run the interactive viewer for `path`.
 pub fn run(path: &str) -> Result<()> {
     let doc = ViewerDocument::open(path)?;
-    let event_loop = EventLoop::new().map_err(|e| {
-        crate::error::Error::Io(std::io::Error::other(format!("{e}")))
-    })?;
+    let event_loop = EventLoop::new()
+        .map_err(|e| crate::error::Error::Io(std::io::Error::other(format!("{e}"))))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = ViewerApp {
         doc,
@@ -43,9 +41,9 @@ pub fn run(path: &str) -> Result<()> {
         hits: Vec::new(),
         hit_index: 0,
     };
-    event_loop.run_app(&mut app).map_err(|e| {
-        crate::error::Error::Io(std::io::Error::other(format!("{e}")))
-    })?;
+    event_loop
+        .run_app(&mut app)
+        .map_err(|e| crate::error::Error::Io(std::io::Error::other(format!("{e}"))))?;
     Ok(())
 }
 
@@ -106,7 +104,7 @@ impl ViewerApp {
             }
         };
         let ctm = Self::ctm_for(self.scale, self.rotation);
-        blit(
+        crate::render::blit_to_buffer(
             &rendered,
             &mut buffer,
             size.width as usize,
@@ -122,11 +120,7 @@ impl ViewerApp {
 
     /// Build the render/transform matrix matching `ViewerDocument::render`.
     fn ctm_for(scale: f32, rotation: u8) -> Matrix {
-        let mut ctm = Matrix::new_scale(scale, scale);
-        if rotation != 0 {
-            ctm.concat(Matrix::new_rotate(rotation as f32));
-        }
-        ctm
+        crate::render::ctm_for(scale, rotation)
     }
 
     /// Re-run the search for the current page with the given term.
@@ -158,7 +152,11 @@ impl ViewerApp {
     }
 
     fn status(&self) -> String {
-        let fit = if self.fit_width { "  ·  fit-width" } else { "" };
+        let fit = if self.fit_width {
+            "  ·  fit-width"
+        } else {
+            ""
+        };
         let base = format!(
             "{}  ·  page {}/{}  ·  {:.0}%  ·  rot {}°{}",
             self.path,
@@ -214,12 +212,7 @@ impl ApplicationHandler for ViewerApp {
         self.surface = Some(surface);
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let window = match self.window.clone() {
             Some(w) => w,
             None => return,
@@ -236,9 +229,7 @@ impl ApplicationHandler for ViewerApp {
             WindowEvent::Resized(_) => {
                 window.request_redraw();
             }
-            WindowEvent::KeyboardInput { event, .. }
-                if event.state == ElementState::Pressed =>
-            {
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 // Search line-edit mode intercepts most keys.
                 if self.search_editing {
                     self.handle_search_key(event_loop, &event.logical_key, &window);
@@ -270,9 +261,7 @@ impl ApplicationHandler for ViewerApp {
                             window.request_redraw();
                         }
                     }
-                    Key::Character(c)
-                        if c.as_str() == "+" || c.as_str() == "=" =>
-                    {
+                    Key::Character(c) if c.as_str() == "+" || c.as_str() == "=" => {
                         self.fit_width = false;
                         self.scale = (self.scale * 1.2).clamp(MIN_SCALE, MAX_SCALE);
                         window.request_redraw();
@@ -378,92 +367,5 @@ impl ViewerApp {
             _ => {}
         }
         let _ = event_loop;
-    }
-}
-
-/// Blit a rendered page into the framebuffer, centered on a neutral
-/// background, then overlay search hits. Pixels are packed little-endian as
-/// `B | (G << 8) | (R << 16)` per `softbuffer`'s contract (alpha is ignored
-/// on the common platforms).
-fn blit(
-    page: &RenderedPage,
-    buffer: &mut [u32],
-    win_w: usize,
-    win_h: usize,
-    ctm: &Matrix,
-    hits: &[Quad],
-    hit_index: usize,
-) {
-    const BG: u32 = 0x2b2b2b; // dark gray backdrop
-    buffer.fill(BG);
-
-    let (pw, ph) = (page.width, page.height);
-    if pw == 0 || ph == 0 || buffer.len() < win_w * win_h {
-        return;
-    }
-    let off_x = ((win_w.saturating_sub(pw)) / 2) as isize;
-    let off_y = ((win_h.saturating_sub(ph)) / 2) as isize;
-
-    let px = &page.rgba;
-    let (br, bg, bb) = ((BG & 0xff), ((BG >> 8) & 0xff), ((BG >> 16) & 0xff));
-    for row in 0..ph {
-        let dy = row as isize + off_y;
-        if dy < 0 || dy as usize >= win_h {
-            continue;
-        }
-        for col in 0..pw {
-            let dx = col as isize + off_x;
-            if dx < 0 || dx as usize >= win_w {
-                continue;
-            }
-            let i = (row * pw + col) * 4;
-            let r = px[i] as u32;
-            let g = px[i + 1] as u32;
-            let b = px[i + 2] as u32;
-            let a = px[i + 3] as u32;
-            // Alpha compositing over the backdrop for partial transparency.
-            let r = (r * a + br * (255 - a)) / 255;
-            let g = (g * a + bg * (255 - a)) / 255;
-            let b = (b * a + bb * (255 - a)) / 255;
-            let dst = dy as usize * win_w + dx as usize;
-            buffer[dst] = b | (g << 8) | (r << 16);
-        }
-    }
-
-    // Search-hit highlights: transform each PDF-space quad into pixel space
-    // via the render matrix, then fill the bounding box with translucent
-    // yellow. The "current" hit is drawn more opaque.
-    for (idx, quad) in hits.iter().enumerate() {
-        let ul = quad.ul.transform(ctm);
-        let ur = quad.ur.transform(ctm);
-        let ll = quad.ll.transform(ctm);
-        let lr = quad.lr.transform(ctm);
-        let min_x = ul.x.min(ur.x).min(ll.x).min(lr.x);
-        let max_x = ul.x.max(ur.x).max(ll.x).max(lr.x);
-        let min_y = ul.y.min(ur.y).min(ll.y).min(lr.y);
-        let max_y = ul.y.max(ur.y).max(ll.y).max(lr.y);
-        let (x0, x1) = (
-            (min_x + off_x as f32).floor() as isize,
-            (max_x + off_x as f32).ceil() as isize,
-        );
-        let (y0, y1) = (
-            (min_y + off_y as f32).floor() as isize,
-            (max_y + off_y as f32).ceil() as isize,
-        );
-        let alpha = if idx == hit_index { 150u32 } else { 90u32 };
-        for yy in y0.max(0)..y1.min(win_h as isize) {
-            for xx in x0.max(0)..x1.min(win_w as isize) {
-                let dst = yy as usize * win_w + xx as usize;
-                let cur = buffer[dst];
-                let cr = cur & 0xff;
-                let cg = (cur >> 8) & 0xff;
-                let cb = (cur >> 16) & 0xff;
-                // Blend yellow (255,255,0) over current pixel.
-                let r = (255 * alpha + cr * (255 - alpha)) / 255;
-                let g = (255 * alpha + cg * (255 - alpha)) / 255;
-                let b = (cb * (255 - alpha)) / 255;
-                buffer[dst] = b | (g << 8) | (r << 16);
-            }
-        }
     }
 }

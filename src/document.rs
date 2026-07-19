@@ -76,24 +76,51 @@ impl ViewerDocument {
     }
 
     /// Render a page and write it to a PNG file.
-    pub fn save_page_png(
+    #[allow(dead_code)]
+    pub fn save_page_png(&self, index: usize, scale: f32, rotation: u8, out: &str) -> Result<()> {
+        self.save_page_png_with_search(index, scale, rotation, None, out)
+    }
+
+    /// Render a page and write it to a PNG file, optionally with search-term
+    /// hits highlighted in yellow. Useful for headless export and for
+    /// non-ASCII queries (passed via argv, bypassing the viewer's ASCII-only
+    /// search box).
+    pub fn save_page_png_with_search(
         &self,
         index: usize,
         scale: f32,
         rotation: u8,
+        term: Option<&str>,
         out: &str,
     ) -> Result<()> {
-        let pixmap = self.render_pixmap(index, scale, rotation)?;
-        pixmap.save_as(out, mupdf::ImageFormat::PNG)?;
+        let mut rendered = self.render(index, scale, rotation)?;
+        if let Some(t) = term {
+            if !t.is_empty() {
+                let hits = self.search(index, t)?;
+                let ctm = crate::render::ctm_for(scale, rotation);
+                crate::render::apply_highlights(
+                    &mut rendered.rgba,
+                    rendered.width,
+                    rendered.height,
+                    &ctm,
+                    &hits,
+                    0,
+                );
+            }
+        }
+        // Rebuild a MuPDF pixmap (RGBA) from our buffer and save.
+        let mut pm = mupdf::Pixmap::new_with_w_h(
+            &mupdf::Colorspace::device_rgb(),
+            rendered.width as i32,
+            rendered.height as i32,
+            true,
+        )?;
+        pm.samples_mut().copy_from_slice(&rendered.rgba);
+        pm.save_as(out, mupdf::ImageFormat::PNG)?;
         Ok(())
     }
 
-    fn render_pixmap(
-        &self,
-        index: usize,
-        scale: f32,
-        rotation: u8,
-    ) -> Result<mupdf::Pixmap> {
+    fn render_pixmap(&self, index: usize, scale: f32, rotation: u8) -> Result<mupdf::Pixmap> {
         let page = self.load_page(index)?;
         let mut ctm = Matrix::new_scale(scale, scale);
         if rotation != 0 {
