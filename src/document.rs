@@ -81,6 +81,27 @@ impl ViewerDocument {
         self.save_page_png_with_search(index, scale, rotation, None, out)
     }
 
+    /// Render every page and write each to a PNG, returning the file paths.
+    ///
+    /// Output paths are `<out_prefix>-<page>.png`. `term` is optional and,
+    /// when present, highlights every search hit on each page (useful for
+    /// non-ASCII queries passed via argv).
+    pub fn save_all_pages_png_with_search(
+        &self,
+        scale: f32,
+        rotation: u8,
+        term: Option<&str>,
+        out_prefix: &str,
+    ) -> Result<Vec<String>> {
+        let mut paths = Vec::with_capacity(self.page_count);
+        for i in 0..self.page_count {
+            let path = format!("{}-{}.png", out_prefix, i);
+            self.save_page_png_with_search(i, scale, rotation, term, &path)?;
+            paths.push(path);
+        }
+        Ok(paths)
+    }
+
     /// Render a page and write it to a PNG file, optionally with search-term
     /// hits highlighted in yellow. Useful for headless export and for
     /// non-ASCII queries (passed via argv, bypassing the viewer's ASCII-only
