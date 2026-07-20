@@ -454,3 +454,62 @@ fn table_renders_with_grid_and_text_is_searchable() {
         "no vertical grid line rendered (longest run {longest_v}px)"
     );
 }
+
+/// A real-world JPEG (not a synthetic checkerboard) embedded into a page and
+/// rendered back out, to prove the image pipeline handles real encoded data
+/// rather than only programmatic pixmaps.
+#[test]
+fn real_jpeg_image_roundtrips_with_color() {
+    let jpeg = include_bytes!("../tests/assets/real.jpg");
+    assert!(jpeg.len() > 1000, "real.jpg asset missing/too small");
+
+    let path = fixture_path("realimg");
+    let mut doc = PdfDocument::new();
+    let mut page = doc.new_page(Size::A4).unwrap();
+    page.insert_image(
+        &mut doc,
+        Rect {
+            x0: 72.0,
+            y0: 400.0,
+            x1: 232.0,
+            y1: 560.0,
+        },
+        PageImageSource::Bytes {
+            data: jpeg,
+            format_hint: Some("jpeg"),
+        },
+        Default::default(),
+    )
+    .unwrap();
+    doc.save(&path).unwrap();
+
+    let vdoc = ViewerDocument::open(&path).unwrap();
+    let rendered = vdoc.render(0, 2.0, 0).expect("render");
+
+    // The image box in pixels: pdf (72,400)-(232,560) at scale 2.
+    let x0 = (72.0 * 2.0) as usize;
+    let y0 = (rendered.height as f32 - 560.0 * 2.0) as usize;
+    let x1 = (232.0 * 2.0) as usize;
+    let y1 = (rendered.height as f32 - 400.0 * 2.0) as usize;
+    let mut colored = 0usize;
+    let mut total = 0usize;
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let p = &rendered.rgba[(y * rendered.width + x) * 4..(y * rendered.width + x) * 4 + 4];
+            let (r, g, b) = (p[0], p[1], p[2]);
+            total += 1;
+            let mx = r.max(g).max(b);
+            let mn = r.min(g).min(b);
+            // colored = clearly non-grayscale (a real photo, not a solid box)
+            if mx - mn > 25 {
+                colored += 1;
+            }
+        }
+    }
+    let ratio = colored as f32 / total as f32;
+    assert!(total > 1000, "image box too small: {total}");
+    assert!(
+        ratio > 0.3,
+        "embedded real JPEG lost its color (colored ratio {ratio:.2})"
+    );
+}
