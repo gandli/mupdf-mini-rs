@@ -15,27 +15,6 @@ impl RenderedPage {
     pub fn pixel_count(&self) -> usize {
         self.width * self.height
     }
-
-    /// Convert the RGBA8 buffer into a `u32` framebuffer suitable for
-    /// `softbuffer` on little-endian machines (memory order R,G,B,A).
-    ///
-    /// `softbuffer`'s `&[u32]` is interpreted as native-endian, where the
-    /// low byte is red. Packing `a<<24 | b<<16 | g<<8 | r` yields R,G,B,A
-    /// in memory on x86/ARM (little-endian), which is what the compositor
-    /// expects.
-    #[allow(dead_code)]
-    pub fn to_argb_u32(&self) -> Vec<u32> {
-        let mut out = Vec::with_capacity(self.pixel_count());
-        let px = &self.rgba;
-        for chunk in px.chunks_exact(4) {
-            let r = chunk[0] as u32;
-            let g = chunk[1] as u32;
-            let b = chunk[2] as u32;
-            let a = chunk[3] as u32;
-            out.push((a << 24) | (b << 16) | (g << 8) | r);
-        }
-        out
-    }
 }
 
 use mupdf::{Matrix, Quad};
@@ -220,6 +199,7 @@ mod tests {
             height: 2,
             rgba: vec![255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         };
+        assert_eq!(page.pixel_count(), 4);
         let mut buf = vec![0u32; 4 * 4]; // 4x4 window, page is 2x2 -> centered
         blit_to_buffer(&page, &mut buf, 4, 4, &ctm_for(1.0, 0), &[], 0);
         // Backdrop is 0x2b2b2b; an opaque red pixel must show up somewhere.
