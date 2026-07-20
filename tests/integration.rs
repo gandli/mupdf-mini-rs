@@ -173,6 +173,22 @@ fn multi_page_out_of_range_is_consistent() {
     assert!(!hits.is_empty());
 }
 
+#[test]
+fn export_all_pages_produces_one_png_each() {
+    let path = fixture_path("multi");
+    make_multi_page_fixture(&path);
+    let doc = ViewerDocument::open(&path).unwrap();
+    let out_prefix = format!("{}/multi", env!("CARGO_TARGET_TMPDIR"));
+    let paths = doc
+        .save_all_pages_png_with_search(1.0, 0, None, &out_prefix)
+        .expect("export all");
+    assert_eq!(paths.len(), 3);
+    for p in &paths {
+        let meta = std::fs::metadata(p).expect("png exists");
+        assert!(meta.len() > 0);
+    }
+}
+
 fn make_cjk_fixture(path: &str) {
     let mut doc = PdfDocument::new();
     let mut page = doc.new_page(Size::A4).unwrap();

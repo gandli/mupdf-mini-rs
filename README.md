@@ -42,6 +42,9 @@ cargo run -- view path/to/document.pdf
 # Render a single page to PNG (headless)
 cargo run -- render path/to/document.pdf --page 0 --scale 2.0 --out page.png
 
+# Render every page (page-0.png, page-1.png, ...)
+cargo run -- render path/to/document.pdf --all --out page
+
 # Render with search-term highlighting (non-ASCII queries work here,
 # bypassing the viewer's ASCII-only search box)
 cargo run -- render path/to/document.pdf --page 0 --search "Hello" --out hi.png

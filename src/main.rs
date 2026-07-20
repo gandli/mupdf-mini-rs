@@ -17,6 +17,7 @@ fn print_help() {
     eprintln!("  --scale  F   zoom factor, 1.0 = 72dpi (default 2.0)");
     eprintln!("  --rotate D   rotation in degrees 0/90/180/270 (default 0)");
     eprintln!("  --out    P   output PNG path (default page.png)");
+    eprintln!("  --all        render every page to <out-prefix>-<n>.png");
     eprintln!("  --search S   highlight all matches of S (ASCII or via argv; e.g. CJK)");
 }
 
@@ -36,6 +37,7 @@ fn main() {
             let mut rotation = 0u8;
             let mut out = "page.png".to_string();
             let mut search: Option<String> = None;
+            let mut all = false;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
@@ -55,6 +57,10 @@ fn main() {
                         out = args[i + 1].clone();
                         i += 2;
                     }
+                    "--all" => {
+                        all = true;
+                        i += 1;
+                    }
                     "--search" => {
                         search = Some(args[i + 1].clone());
                         i += 2;
@@ -65,13 +71,33 @@ fn main() {
                     }
                 }
             }
-            match document::ViewerDocument::open(&file).and_then(|d| {
-                d.save_page_png_with_search(page, scale, rotation, search.as_deref(), &out)
-            }) {
-                Ok(()) => eprintln!("rendered page {page} -> {out}"),
+            let doc = match document::ViewerDocument::open(&file) {
+                Ok(d) => d,
                 Err(e) => {
                     eprintln!("error: {e}");
                     exit(1);
+                }
+            };
+            if all {
+                match doc.save_all_pages_png_with_search(scale, rotation, search.as_deref(), &out) {
+                    Ok(paths) => {
+                        for p in &paths {
+                            eprintln!("rendered -> {p}");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        exit(1);
+                    }
+                }
+            } else {
+                match doc.save_page_png_with_search(page, scale, rotation, search.as_deref(), &out)
+                {
+                    Ok(()) => eprintln!("rendered page {page} -> {out}"),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        exit(1);
+                    }
                 }
             }
         }
