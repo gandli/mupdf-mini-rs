@@ -2,9 +2,9 @@
 //! (no external fixture files, no network), then rendered, text-extracted and
 //! exported to PNG to exercise the full pipeline.
 
-use mupdf::pdf::PdfDocument;
+use mupdf::pdf::{PageImageSource, PdfDocument};
 use mupdf::shape::{FinishOptions, PdfColor, Shape, TextOptions};
-use mupdf::{Point, Rect, Size, TextExtractOptions};
+use mupdf::{Colorspace, Pixmap, Point, Rect, Size, TextExtractOptions};
 
 use mupdf_mini_rs::ViewerDocument;
 
@@ -158,7 +158,7 @@ fn rotation_highlight_ctm_is_orthogonal() {
 
 #[test]
 fn multi_page_out_of_range_is_consistent() {
-    let path = fixture_path("multi");
+    let path = fixture_path("mp1");
     make_multi_page_fixture(&path);
     let doc = ViewerDocument::open(&path).unwrap();
     assert_eq!(doc.page_count(), 3);
@@ -175,7 +175,7 @@ fn multi_page_out_of_range_is_consistent() {
 
 #[test]
 fn text_all_concatenates_pages() {
-    let path = fixture_path("multi");
+    let path = fixture_path("textall");
     make_multi_page_fixture(&path);
     let doc = ViewerDocument::open(&path).unwrap();
     let all = doc.text_all().expect("text_all");
@@ -187,7 +187,7 @@ fn text_all_concatenates_pages() {
 
 #[test]
 fn export_all_pages_produces_one_png_each() {
-    let path = fixture_path("multi");
+    let path = fixture_path("mp2");
     make_multi_page_fixture(&path);
     let doc = ViewerDocument::open(&path).unwrap();
     let out_prefix = format!("{}/multi", env!("CARGO_TARGET_TMPDIR"));
@@ -233,4 +233,176 @@ fn make_multi_page_fixture(path: &str) {
             .unwrap();
     }
     doc.save(path).unwrap();
+}
+
+/// Build a single page that mixes the elements real-world PDFs have:
+/// an embedded raster image, a QR-code-like bitmap, drawn table grid lines,
+/// and cell text.
+fn make_rich_fixture(path: &str) {
+    let mut doc = PdfDocument::new();
+    let mut page = doc.new_page(Size::A4).unwrap();
+
+    // Embedded raster image (top-right): red/blue checker
+    let mut img = Pixmap::new_with_w_h(&Colorspace::device_rgb(), 80, 80, false).unwrap();
+    {
+        let s = img.samples_mut();
+        for y in 0..80i32 {
+            for x in 0..80i32 {
+                let c = if (x / 10 + y / 10) % 2 == 0 {
+                    [220u8, 40, 40]
+                } else {
+                    [40, 60, 220]
+                };
+                let i = ((y * 80 + x) * 3) as usize;
+                s[i] = c[0];
+                s[i + 1] = c[1];
+                s[i + 2] = c[2];
+            }
+        }
+    }
+    page.insert_image(
+        &mut doc,
+        Rect {
+            x0: 450.0,
+            y0: 720.0,
+            x1: 530.0,
+            y1: 800.0,
+        },
+        PageImageSource::Pixmap(&img),
+        Default::default(),
+    )
+    .unwrap();
+
+    // QR-code-like bitmap (middle): black/white checker
+    let mut qr = Pixmap::new_with_w_h(&Colorspace::device_rgb(), 72, 72, false).unwrap();
+    {
+        let s = qr.samples_mut();
+        for y in 0..72i32 {
+            for x in 0..72i32 {
+                let c = if (x / 8 + y / 8) % 2 == 0 {
+                    [10u8, 10, 10]
+                } else {
+                    [245, 245, 245]
+                };
+                let i = ((y * 72 + x) * 3) as usize;
+                s[i] = c[0];
+                s[i + 1] = c[1];
+                s[i + 2] = c[2];
+            }
+        }
+    }
+    page.insert_image(
+        &mut doc,
+        Rect {
+            x0: 72.0,
+            y0: 470.0,
+            x1: 144.0,
+            y1: 542.0,
+        },
+        PageImageSource::Pixmap(&qr),
+        Default::default(),
+    )
+    .unwrap();
+
+    // Table (bottom): grid lines + cell text
+    let gx0 = 72.0;
+    let gy0 = 250.0;
+    let gx1 = 400.0;
+    let gy1 = 400.0;
+    let rows = 4;
+    let cols = 3;
+    let cell_w = (gx1 - gx0) / cols as f32;
+    let cell_h = (gy1 - gy0) / rows as f32;
+    let mut shape = Shape::new(&mut page).unwrap();
+    for i in 0..=rows {
+        let y = gy0 + cell_h * i as f32;
+        shape
+            .draw_line(Point::new(gx0, y), Point::new(gx1, y))
+            .unwrap();
+    }
+    for j in 0..=cols {
+        let x = gx0 + cell_w * j as f32;
+        shape
+            .draw_line(Point::new(x, gy0), Point::new(x, gy1))
+            .unwrap();
+    }
+    shape.commit(&mut doc, true).unwrap();
+
+    let cells: [[&str; 3]; 4] = [
+        ["Name", "Age", "City"],
+        ["Alice", "30", "Fuzhou"],
+        ["Bob", "25", "Beijing"],
+        ["Carol", "41", "Xiamen"],
+    ];
+    for (ri, row) in cells.iter().enumerate() {
+        for (ci, txt) in row.iter().enumerate() {
+            let x = gx0 + cell_w * ci as f32 + 6.0;
+            let y = gy0 + cell_h * ri as f32 + cell_h * 0.65;
+            let mut s = Shape::new(&mut page).unwrap();
+            s.insert_text(Point::new(x, y), txt, &TextOptions::default())
+                .unwrap()
+                .commit(&mut doc, true)
+                .unwrap();
+        }
+    }
+
+    doc.save(path).unwrap();
+}
+
+#[test]
+fn embedded_image_renders_as_colored_pixels() {
+    let path = fixture_path("rich");
+    make_rich_fixture(&path);
+    let doc = ViewerDocument::open(&path).unwrap();
+    let page = doc.render(0, 2.0, 0).expect("render");
+    let mut red = 0usize;
+    let mut blue = 0usize;
+    for pix in page.rgba.chunks(4) {
+        let (r, g, b) = (pix[0], pix[1], pix[2]);
+        if r > 180 && g < 100 && b < 100 {
+            red += 1;
+        } else if r < 100 && g < 120 && b > 180 {
+            blue += 1;
+        }
+    }
+    assert!(red > 1000, "expected embedded red image pixels, got {red}");
+    assert!(
+        blue > 1000,
+        "expected embedded blue image pixels, got {blue}"
+    );
+}
+
+#[test]
+fn qr_bitmap_renders_into_pixels() {
+    let path = fixture_path("rich");
+    make_rich_fixture(&path);
+    let doc = ViewerDocument::open(&path).unwrap();
+    let page = doc.render(0, 2.0, 0).expect("render");
+    let mut dark = 0usize;
+    let mut light = 0usize;
+    for pix in page.rgba.chunks(4) {
+        let (r, g, b) = (pix[0], pix[1], pix[2]);
+        if r < 60 && g < 60 && b < 60 {
+            dark += 1;
+        } else if r > 200 && g > 200 && b > 200 {
+            light += 1;
+        }
+    }
+    assert!(dark > 1000, "expected dark QR pixels, got {dark}");
+    assert!(light > 1000, "expected light QR pixels, got {light}");
+}
+
+#[test]
+fn table_text_is_extracted_and_searchable() {
+    let path = fixture_path("rich");
+    make_rich_fixture(&path);
+    let doc = ViewerDocument::open(&path).unwrap();
+    let text = doc.text_all().expect("text");
+    for needle in [
+        "Name", "Age", "City", "Alice", "Fuzhou", "Bob", "Beijing", "Carol", "Xiamen",
+    ] {
+        assert!(text.contains(needle), "missing table cell text: {needle}");
+    }
+    let hits = doc.search(0, "Alice").expect("search");
+    assert!(!hits.is_empty(), "search for 'Alice' found no hits");
 }
