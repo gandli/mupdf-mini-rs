@@ -11,14 +11,17 @@ PNG export.
 ## Features
 
 - **Tiny dependency surface.** Core rendering uses only `mupdf` with the
-  minimal `base14-fonts` feature (the URW fonts compiled into `mupdf-sys`),
-  so there is no JS engine, OCR, or HTML layout pulled in.
+  `base14-fonts` + `system-fonts` features, so there is no JS engine, OCR,
+  or HTML layout pulled in. `system-fonts` lets non-Latin scripts (e.g. CJK)
+  render using platform fonts.
 - **Native GUI** via `winit` + `softbuffer` — zero high-level widget
   dependencies, the page is blitted straight from the MuPDF pixmap into the
   framebuffer.
-- **CLI renderer** for automation / headless export to PNG.
+- **CLI renderer** for automation / headless export to PNG, with optional
+  search-term highlighting.
 - Page navigation, zoom (fit-to-width + free zoom), 90° rotation, text
   extraction, PNG export.
+- In-viewer and headless **text search** with yellow hit highlighting.
 
 ## Build
 
@@ -38,6 +41,10 @@ cargo run -- view path/to/document.pdf
 
 # Render a single page to PNG (headless)
 cargo run -- render path/to/document.pdf --page 0 --scale 2.0 --out page.png
+
+# Render with search-term highlighting (non-ASCII queries work here,
+# bypassing the viewer's ASCII-only search box)
+cargo run -- render path/to/document.pdf --page 0 --search "Hello" --out hi.png
 ```
 
 ### Viewer controls
@@ -54,13 +61,37 @@ cargo run -- render path/to/document.pdf --page 0 --scale 2.0 --out page.png
 | mouse wheel             | Zoom at cursor                  |
 | `q` / `Esc`             | Quit                            |
 
-Search uses ASCII line-editing (no IME); hits are highlighted in yellow on
-the page, with the current hit drawn more strongly. For non-ASCII queries
-pass `--search` via a future CLI flag or build with the document text path.
+Search in the viewer uses ASCII line-editing (no IME); hits are highlighted
+in yellow on the page, with the current hit drawn more strongly. For
+non-ASCII queries (e.g. CJK), use the `--search TERM` CLI flag, which takes
+the term from argv and therefore bypasses the ASCII-only input box.
+
+## Testing
+
+The suite is fully self-contained — fixtures are generated in-memory with
+MuPDF's `Shape` API, so there are no external files or network calls.
+
+```sh
+cargo test            # unit + integration tests
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
+```
+
+Coverage includes: page render at multiple zooms/rotations, text extraction,
+PNG export, in-bounds search-hit quads, yellow highlight injection, the
+`ctm_for` transform matrix (scale/rotation orthogonality), `blit_to_buffer`
+centering and out-of-bounds guards, CJK render path, and multi-page
+out-of-range errors.
+
+## CI
+
+A GitHub Actions pipeline (`.github/workflows/build.yml`) runs `fmt`,
+`clippy -D warnings`, `build` and `test` on `ubuntu-latest` for every push
+to `main` and every pull request.
 
 **Fonts.** By default the URW base14 fonts are compiled in (`base14-fonts`)
-so Latin text renders. Enable the `system-fonts` feature to use platform
-fonts (e.g. CJK) so documents with non-Latin scripts display correctly.
+so Latin text renders. The `system-fonts` feature is also enabled by default
+so documents with non-Latin scripts (e.g. CJK) display correctly.
 
 ## Library
 
