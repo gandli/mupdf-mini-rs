@@ -174,6 +174,18 @@ fn multi_page_out_of_range_is_consistent() {
 }
 
 #[test]
+fn text_all_concatenates_pages() {
+    let path = fixture_path("multi");
+    make_multi_page_fixture(&path);
+    let doc = ViewerDocument::open(&path).unwrap();
+    let all = doc.text_all().expect("text_all");
+    // Both page 1 and page 2 contain "Page"; page 3 too.
+    assert!(all.contains("Page 1 of the mini viewer"));
+    assert!(all.contains("Page 2 of the mini viewer"));
+    assert!(all.contains("Page 3 of the mini viewer"));
+}
+
+#[test]
 fn export_all_pages_produces_one_png_each() {
     let path = fixture_path("multi");
     make_multi_page_fixture(&path);

@@ -35,6 +35,25 @@ impl ViewerDocument {
         Ok(page.text(TextExtractOptions::default())?)
     }
 
+    /// Extract the plain text of the whole document, one trimmed line block
+    /// per page, joined by double newlines. Useful for headless full-text
+    /// export of a document.
+    pub fn text_all(&self) -> Result<String> {
+        let mut out = String::new();
+        for i in 0..self.page_count {
+            let page = self.load_page(i)?;
+            let t = page.text(TextExtractOptions::default())?;
+            let t = t.trim();
+            if !t.is_empty() {
+                if !out.is_empty() {
+                    out.push_str("\n\n");
+                }
+                out.push_str(t);
+            }
+        }
+        Ok(out)
+    }
+
     /// Search a page for `needle`, returning hit quads in PDF coordinates.
     pub fn search(&self, index: usize, needle: &str) -> Result<Vec<mupdf::Quad>> {
         let page = self.load_page(index)?;

@@ -18,6 +18,7 @@ fn print_help() {
     eprintln!("  --rotate D   rotation in degrees 0/90/180/270 (default 0)");
     eprintln!("  --out    P   output PNG path (default page.png)");
     eprintln!("  --all        render every page to <out-prefix>-<n>.png");
+    eprintln!("  --text   T   extract full document text to file T");
     eprintln!("  --search S   highlight all matches of S (ASCII or via argv; e.g. CJK)");
 }
 
@@ -36,8 +37,9 @@ fn main() {
             let mut scale = 2.0f32;
             let mut rotation = 0u8;
             let mut out = "page.png".to_string();
-            let mut search: Option<String> = None;
             let mut all = false;
+            let mut search: Option<String> = None;
+            let mut text_out: Option<String> = None;
             let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
@@ -61,6 +63,10 @@ fn main() {
                         all = true;
                         i += 1;
                     }
+                    "--text" => {
+                        text_out = Some(args[i + 1].clone());
+                        i += 2;
+                    }
                     "--search" => {
                         search = Some(args[i + 1].clone());
                         i += 2;
@@ -78,6 +84,22 @@ fn main() {
                     exit(1);
                 }
             };
+            if let Some(t) = text_out {
+                match doc.text_all() {
+                    Ok(text) => match std::fs::write(&t, text) {
+                        Ok(()) => eprintln!("extracted text -> {t}"),
+                        Err(e) => {
+                            eprintln!("error writing {t}: {e}");
+                            exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        exit(1);
+                    }
+                }
+                return;
+            }
             if all {
                 match doc.save_all_pages_png_with_search(scale, rotation, search.as_deref(), &out) {
                     Ok(paths) => {

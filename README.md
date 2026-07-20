@@ -48,6 +48,9 @@ cargo run -- render path/to/document.pdf --all --out page
 # Render with search-term highlighting (non-ASCII queries work here,
 # bypassing the viewer's ASCII-only search box)
 cargo run -- render path/to/document.pdf --page 0 --search "Hello" --out hi.png
+
+# Extract the full document text to a file
+cargo run -- render path/to/document.pdf --text doc.txt
 ```
 
 ### Viewer controls
