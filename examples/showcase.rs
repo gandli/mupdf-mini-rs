@@ -6,7 +6,7 @@
 //! Run: cargo run --example showcase
 
 use mupdf::pdf::{PageImageSource, PdfDocument};
-use mupdf::shape::{Shape, TextOptions};
+use mupdf::shape::{FinishOptions, Shape, TextOptions};
 use mupdf::{Colorspace, Matrix, Pixmap, Point, Rect, Size};
 
 fn make_checker(w: i32, h: i32, c0: [u8; 3], c1: [u8; 3], cells: i32) -> Pixmap {
@@ -108,7 +108,11 @@ fn main() {
             .draw_line(Point::new(x, gy0), Point::new(x, gy1))
             .unwrap();
     }
-    shape.commit(&mut doc, true).unwrap();
+    shape
+        .finish(&FinishOptions::default())
+        .unwrap()
+        .commit(&mut doc, true)
+        .unwrap();
 
     let cells: [[&str; 3]; 4] = [
         ["Name", "Age", "City"],

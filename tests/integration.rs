@@ -326,7 +326,11 @@ fn make_rich_fixture(path: &str) {
             .draw_line(Point::new(x, gy0), Point::new(x, gy1))
             .unwrap();
     }
-    shape.commit(&mut doc, true).unwrap();
+    shape
+        .finish(&FinishOptions::default())
+        .unwrap()
+        .commit(&mut doc, true)
+        .unwrap();
 
     let cells: [[&str; 3]; 4] = [
         ["Name", "Age", "City"],
@@ -393,7 +397,7 @@ fn qr_bitmap_renders_into_pixels() {
 }
 
 #[test]
-fn table_text_is_extracted_and_searchable() {
+fn table_renders_with_grid_and_text_is_searchable() {
     let path = fixture_path("rich");
     make_rich_fixture(&path);
     let doc = ViewerDocument::open(&path).unwrap();
@@ -405,4 +409,48 @@ fn table_text_is_extracted_and_searchable() {
     }
     let hits = doc.search(0, "Alice").expect("search");
     assert!(!hits.is_empty(), "search for 'Alice' found no hits");
+
+    // The grid is drawn with vector lines; prove they actually rendered by
+    // finding a long horizontal run of black pixels inside the table band.
+    let page = doc.render(0, 2.0, 0).expect("render");
+    let w = page.width;
+    let h = page.height;
+    let mut longest_h = 0usize;
+    let mut longest_v = 0usize;
+    // Table band in pixels: pdf y 250..400 -> pixel y (h - 400*2)..(h - 250*2)
+    let y0 = (h as f32 - 400.0 * 2.0) as usize;
+    let y1 = (h as f32 - 250.0 * 2.0) as usize;
+    let x0 = (72.0 * 2.0) as usize;
+    let x1 = (400.0 * 2.0) as usize;
+    let is_dark = |p: &[u8]| p[0] < 80 && p[1] < 80 && p[2] < 80;
+    for y in y0..y1.min(h) {
+        let mut run = 0usize;
+        for x in x0..x1.min(w) {
+            if is_dark(&page.rgba[(y * w + x) * 4..(y * w + x) * 4 + 4]) {
+                run += 1;
+                longest_h = longest_h.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    for x in x0..x1.min(w) {
+        let mut run = 0usize;
+        for y in y0..y1.min(h) {
+            if is_dark(&page.rgba[(y * w + x) * 4..(y * w + x) * 4 + 4]) {
+                run += 1;
+                longest_v = longest_v.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    assert!(
+        longest_h >= 100,
+        "no horizontal grid line rendered (longest run {longest_h}px)"
+    );
+    assert!(
+        longest_v >= 100,
+        "no vertical grid line rendered (longest run {longest_v}px)"
+    );
 }
