@@ -141,3 +141,109 @@ pub fn blit_to_buffer(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mupdf::Point;
+
+    #[test]
+    fn ctm_scale_only_is_axis_aligned() {
+        let m = ctm_for(2.0, 0);
+        // No rotation: a unit point maps to (2,2) with no shear.
+        let p = Point::new(1.0, 1.0).transform(&m);
+        assert!((p.x - 2.0).abs() < 1e-3 && (p.y - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn ctm_rotation_90_maps_axes() {
+        let m = ctm_for(1.0, 90);
+        let p = Point::new(1.0, 0.0).transform(&m);
+        // MuPDF's rotate(90) maps (1,0) -> (0,1); assert it swaps axes and
+        // stays unit length (orthogonal, non-shearing rotation).
+        assert!(
+            (p.x).abs() < 1e-3 && (p.y - 1.0).abs() < 1e-3,
+            "got {:?}",
+            p
+        );
+        let len = (p.x * p.x + p.y * p.y).sqrt();
+        assert!((len - 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn apply_highlights_paints_yellow_and_leaves_rest() {
+        // 4x4 image, all transparent black.
+        let mut rgba = vec![0u8; 4 * 4 * 4];
+        // A hit quad covering pixel (1,1) at 1x scale (no rotation).
+        let q = Quad {
+            ul: Point::new(1.0, 1.0),
+            ur: Point::new(2.0, 1.0),
+            ll: Point::new(1.0, 2.0),
+            lr: Point::new(2.0, 2.0),
+        };
+        let m = ctm_for(1.0, 0);
+        apply_highlights(&mut rgba, 4, 4, &m, &[q], 0);
+        // The single covered pixel must be yellow-ish: r=g high, b=0.
+        let i = 20;
+        assert!(
+            rgba[i] > 100 && rgba[i + 1] > 100 && rgba[i + 2] == 0,
+            "hit px = {:?}",
+            &rgba[i..i + 3]
+        );
+        // A far pixel must be untouched.
+        let j = (3 * 4 + 3) * 4;
+        assert_eq!(&rgba[j..j + 3], &[0, 0, 0]);
+    }
+
+    #[test]
+    fn apply_highlights_current_is_more_opaque() {
+        let mut a = vec![0u8; 4 * 2 * 2];
+        let mut b = vec![0u8; 4 * 2 * 2];
+        let q = Quad {
+            ul: Point::new(0.0, 0.0),
+            ur: Point::new(2.0, 0.0),
+            ll: Point::new(0.0, 2.0),
+            lr: Point::new(2.0, 2.0),
+        };
+        let m = ctm_for(1.0, 0);
+        let hits = [q];
+        apply_highlights(&mut a, 2, 2, &m, &hits, 0); // current
+        apply_highlights(&mut b, 2, 2, &m, &hits, 99); // not current
+                                                       // Current hit blends at alpha 150 vs 90 -> higher red channel.
+        assert!(a[0] > b[0]);
+    }
+
+    #[test]
+    fn blit_centers_page_and_skips_oob() {
+        let page = RenderedPage {
+            width: 2,
+            height: 2,
+            rgba: vec![255, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        };
+        let mut buf = vec![0u32; 4 * 4]; // 4x4 window, page is 2x2 -> centered
+        blit_to_buffer(&page, &mut buf, 4, 4, &ctm_for(1.0, 0), &[], 0);
+        // Backdrop is 0x2b2b2b; an opaque red pixel must show up somewhere.
+        // Packing is b|(g<<8)|(r<<16), so red 255 sits in the high byte.
+        let reds: usize = buf
+            .iter()
+            .filter(|&&p| ((p >> 16) & 0xff) == 255 && ((p >> 8) & 0xff) == 0)
+            .count();
+        assert_eq!(reds, 1);
+        // The rest are the gray backdrop.
+        let grays: usize = buf.iter().filter(|&&p| p == 0x2b2b2b).count();
+        assert_eq!(grays, 15);
+    }
+
+    #[test]
+    fn blit_guards_against_tiny_buffer() {
+        let page = RenderedPage {
+            width: 10,
+            height: 10,
+            rgba: vec![0; 10 * 10 * 4],
+        };
+        let mut buf = vec![0x2b2b2bu32; 4]; // too small for a 10x10 page
+        blit_to_buffer(&page, &mut buf, 2, 2, &ctm_for(1.0, 0), &[], 0);
+        // Must not panic and must leave the buffer as the filled backdrop.
+        assert!(buf.iter().all(|&p| p == 0x2b2b2b));
+    }
+}
